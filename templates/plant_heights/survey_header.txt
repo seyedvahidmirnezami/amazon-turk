@@ -1,0 +1,26 @@
+[[AdvancedFormat]]
+{ed_declarations}
+[[ED:anno_metadata]]
+
+[[Block]]
+[[Question:Text]]
+The goal of this survey is to measure height of plants from image by drawing lines. Please watch the following video for the drawing instruction <br />
+<a href=https://www.dropbox.com/s/kqsqsunccqxyj80/Tutorial%20height%20measurement.mov?dl=0>Plant Height Survey</a> <br />
+The pseudo transcript of the video can be found <a href=https://www.dropbox.com/s/ml80sknzhh8pqln/Plant%20Height%20Survey%20M1_SH.docx?dl=0>here</a><br />
+<br />
+Please maximize the browser window during this survey in order to provide accurate measurements.
+Please do not change devices (i.e. switch to a phone or tablet) after you have clicked the next button below.
+
+<script>
+<!-- Record window size, monitor resolution, and DPI scaling in the "anno_metadata" embedded data. -->
+Qualtrics.SurveyEngine.addOnPageSubmit(function (type) {
+  var meta = {
+    screenX: window.screen.availWidth,
+    screenY: window.screen.availHeight,
+    windowX: jQuery(window).width(),
+    windowY: jQuery(window).height(),
+    devicePixelRatio: window.devicePixelRatio,  // detect high DPI displays
+  };
+  Qualtrics.SurveyEngine.setEmbeddedData('anno_metadata', JSON.stringify(meta));
+});
+</script>

@@ -1,0 +1,43 @@
+[[Block]]
+[[Question:Text]]
+<div>
+    <!-- Buttons -->
+    <div style="margin-bottom: 8px">
+        <input class="target-button" type="button" id="target-InterRow-{image_id}"   value="HorizonLine">
+        <input class="target-button" type="button" id="target-BaseLine-{image_id}" value="BaseLine">
+        <input class="target-button" type="button" id="target-Plant1-{image_id}" value="1">
+        <input class="target-button" type="button" id="target-Plant2-{image_id}" value="2">
+        <input class="target-button" type="button" id="target-Plant3-{image_id}" value="3">
+        <input class="target-button" type="button" id="target-Plant4-{image_id}" value="4">
+        <input class="target-button" type="button" id="target-Plant5-{image_id}" value="5">
+        <input class="target-button" type="button" id="target-Plant6-{image_id}" value="6">
+    </div>
+
+    <div id="canvas-{image_id}" style="display: inline-block"></div>
+
+    <!-- Zoom controls -->
+    <div style="display: inline-block; vertical-align: top; margin-left: 320px;">
+        <input class="zoom-button" type="button" id="btn-zoom-{image_id}" value="Zoom">
+        <input class="zoom-button" type="button" id="btn-cancel-zoom-{image_id}" value="Cancel zoom" disabled="true">
+    </div>
+</div>
+
+<script>
+Qualtrics.SurveyEngine.addOnload(function() {
+  var canvas = jQuery('#canvas-{image_id}');
+  var targetBtns = jQuery('.target-button[id^=target-][id$=-{image_id}]');
+  var zoomBtn = jQuery('#btn-zoom-{image_id}');
+  var cancelZoomBtn = jQuery('#btn-cancel-zoom-{image_id}');
+  initQuestion(canvas, this, targetBtns, zoomBtn, cancelZoomBtn,
+      '{image_url}', '{image_ed}', '${e://Field/{image_ed}}');
+});
+</script>
+[[Question:MC:Dropdown]]
+[[ID:quality_{image_ed}]]
+Skip image because:
+[[Choices]]
+not fully visible
+blurry/glare
+less than two plants
+corrupted image
+other

@@ -1,0 +1,442 @@
+<style>
+    .target-button {
+        background-color: white;
+        border: 2px solid #4CAF50;
+        color: black;
+        padding: 10px 26px;
+        text-align: center;
+        text-decoration: none;
+        display: inline-block;
+        font-size: 16px;
+        font-weight: bold;
+
+        -webkit-transition-duration: 0.4s; /* Safari */
+        transition-duration: 0.4s;
+    }
+
+    .target-button-done {
+        background-color: #4CAF50;
+    }
+
+    .activated {
+        text-shadow: 0px 0px 1px black;
+    }
+</style>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/raphael/2.2.7/raphael.min.js"></script>
+
+<script>
+var Annotator = Annotator || function() {
+  return {
+    raphaelImage: null,
+    mouseDown: false,
+    currentTool: null,
+    zoomFactor: 1.0,
+    zoomOffset: {x: 0, y: 0},
+
+    init: function(image_url, canvas, canvasSize, loaded_cb, changed_cb) {
+      var $ = $ || jQuery;
+
+      // load the image first so we can look at its dimensions
+      var img = new Image();
+      img.onload = $.proxy(function() {
+        // calculate canvas dimensions
+        var imgWidth = img.width, imgHeight = img.height;
+        img = undefined;
+        var xScale = canvasSize && canvasSize.width ? canvasSize.width / imgWidth : 1.0;
+        var yScale = canvasSize && canvasSize.height ? canvasSize.height / imgHeight : 1.0;
+        var scale = Math.min(xScale, yScale);
+        this.canvasWidth = imgWidth * scale;
+        this.canvasHeight = imgHeight * scale;
+        var annotator = this;
+
+        // init raphael
+        this.paper = Raphael(canvas.get(0), this.canvasWidth, this.canvasHeight);
+        this.raphaelImage = this.paper.image(image_url, 0, 0, this.canvasWidth, this.canvasHeight);
+
+        // install event handlers to canvas
+        var eventToPoint = function (e) {
+          if (e.type === "touchstart" || e.type === "touchmove") {
+            if (navigator.userAgent.toLowerCase().indexOf("android") > -1) {
+              return {x: e.changedTouches[0].pageX + window.scrollX, y: e.changedTouches[0].pageY + window.scrollY};
+            } else {
+              return {x: e.changedTouches[0].pageX, y: e.changedTouches[0].pageY};
+            }
+          } else {
+            return {x: e.pageX, y: e.pageY};
+          }
+        };
+
+        var getRelPoint = function (pt) {
+          var container = canvas.get(0);
+          var offset = {};
+
+          var ref = container.offsetParent;
+          offset.left = container.offsetLeft;
+          offset.top = container.offsetTop;
+
+          while (ref) {
+            offset.left += ref.offsetLeft;
+            offset.top += ref.offsetTop;
+            ref = ref.offsetParent;
+          }
+
+          return {
+            x: annotator.zoomOffset.x + (pt.x - offset.left) * annotator.zoomFactor,
+            y: annotator.zoomOffset.y + (pt.y - offset.top) * annotator.zoomFactor
+          };
+        };
+
+        canvas.bind("mousedown touchstart", function (e) {
+          e.preventDefault();
+          var pt = getRelPoint(eventToPoint(e));
+          if (annotator.currentTool && annotator.currentTool.mousedown) {
+            annotator.mouseDown = annotator.currentTool.mousedown(pt);
+          }
+        });
+
+        canvas.bind("mousemove touchmove", function (e) {
+          if (!annotator.mouseDown)
+            return;
+          e.preventDefault();
+          var pt = getRelPoint(eventToPoint(e));
+          if(annotator.currentTool && annotator.currentTool.mousemove)
+            annotator.currentTool.mousemove(pt);
+        });
+
+        canvas.bind("mouseup touchend", function (e) {
+          if (!annotator.mouseDown)
+            return;
+          e.preventDefault();
+          var pt = getRelPoint(eventToPoint(e));
+          annotator.mouseDown = false;
+
+          if(annotator.currentTool && annotator.currentTool.mouseup)
+            annotator.currentTool.mouseup(pt);
+        });
+
+        if (loaded_cb)
+          loaded_cb.call(this);
+      }, this);
+      img.src = image_url;
+    },
+
+    normalizePoint: function(x, y) {
+      return {x: x / this.canvasWidth, y: y / this.canvasHeight};
+    },
+
+    denormalizePoint: function(x, y) {
+      return {x: x * this.canvasWidth, y: y * this.canvasHeight};
+    },
+
+    normalizePath: function (path) {
+      return path.map(function (p) {
+        if (p[0] === 'M' || p[0] === 'L') {
+          var pt = this.normalizePoint(p[1], p[2]);
+          return [p[0], pt.x, pt.y];
+        } else {
+          return p;
+        }
+      }, this);
+    },
+
+    denormalizePath: function (path) {
+      return path.map(function (p) {
+        if (p[0] === 'M' || p[0] === 'L') {
+          var pt = this.denormalizePoint(p[1], p[2]);
+          return [p[0], pt.x, pt.y];
+        } else {
+          return p;
+        }
+      }, this);
+    },
+
+    zoomTo: function(x, y, width, height) {
+      this.zoomFactor = Math.max(width / this.canvasWidth, height / this.canvasHeight, 0.05);
+      this.zoomFactor = Math.min(this.zoomFactor, 1.0);
+
+      var center = {x: x + width / 2.0, y: y + height / 2.0};
+      var corner = {
+        x: center.x - this.paper.width * this.zoomFactor / 2.0,
+        y: center.y - this.paper.height * this.zoomFactor / 2.0
+      };
+      this.zoomOffset = {x: corner.x, y: corner.y};
+      this.paper.setViewBox(this.zoomOffset.x, this.zoomOffset.y,
+        this.paper.width * this.zoomFactor, this.paper.height * this.zoomFactor,
+        false);
+    },
+
+    clearZoom: function() {
+      this.zoomFactor = 1.0;
+      this.zoomOffset = {x: 0, y: 0};
+      this.paper.setViewBox(0, 0, this.canvasWidth, this.canvasHeight);
+    },
+
+    setTool: function(tool) {
+      if (this.currentTool && this.currentTool.deactivated)
+        this.currentTool.deactivated();
+
+      this.currentTool = tool;
+
+      if (this.currentTool && this.currentTool.activated)
+        this.currentTool.activated();
+    }
+  };
+};
+
+var createZoomTool = function(annotator, changed_cb) {
+  return {
+    rect: null,
+    startPt: null,
+
+    mousedown: function (pt) {
+      if (annotator.zoomFactor !== 1.0) {
+        annotator.clearZoom();
+        if (changed_cb)
+          changed_cb.cal(this, annotator.zoomFactor, annotator.zoomOffset);
+        return false;
+      }
+
+      this.rect = annotator.paper.rect(pt.x, pt.y, 0, 0);
+      this.rect.attr({stroke: '#4070EE', 'stroke-width': 2.0, 'stroke-opacity': 0.9, 'fill': '#4080EE', 'fill-opacity': 0.3});
+      this.startPt = pt;
+      return true;
+    },
+    mousemove: function (pt) {
+      // width/height cannot be negative, so we do some swapping here
+      var attrs = {
+        x: Math.min(this.startPt.x, pt.x),
+        y: Math.min(this.startPt.y, pt.y),
+        width: Math.max(this.startPt.x, pt.x) - Math.min(this.startPt.x, pt.x),
+        height: Math.max(this.startPt.y, pt.y) - Math.min(this.startPt.y, pt.y)
+      };
+      this.rect.attr(attrs);
+    },
+    mouseup: function (pt) {
+      this.mousemove(pt);
+      var r = this.rect;
+      annotator.zoomTo(r.attr('x'), r.attr('y'), r.attr('width'), r.attr('height'));
+      this.rect.remove();
+      this.rect = null;
+      this.startPt = null;
+
+      if (changed_cb)
+        changed_cb.call(this, [annotator.zoomFactor, annotator.zoomOffset]);
+    },
+    deactivated: function () {
+      if (this.rect) {
+        this.rect.remove();
+        this.rect = null;
+      }
+    }
+  };
+};
+
+var createFreeformDrawTool = function(annotator, changed_cb, drawColor, strokeWidth) {
+  return {
+    pathData: [],
+    raphaelPath: annotator.paper.path(this.pathData).attr({
+      'stroke': drawColor || '#800080',
+      'stroke-width': strokeWidth || 2
+    }),
+
+    mousedown: function (pt) {
+      this.pathData = [['M', pt.x, pt.y]];
+      this.syncPathData();
+      return true;
+    },
+    mousemove: function (pt) {
+      // limit precision to 1px at most to avoid excessive path data when drawing zoomed in
+      if (this.pathData.length > 0) {
+        var prev = this.pathData[this.pathData.length - 1];
+        var vec = {x: pt.x - prev[1], y: pt.y - prev[2]};
+        var dist = Math.sqrt(vec.x*vec.x + vec.y*vec.y);
+        if (dist < 1.0)
+          return;
+      }
+      this.pathData.push(['L', pt.x, pt.y]);
+      this.syncPathData();
+    },
+    mouseup: function (pt) {
+      this.pathData.push(['Z']);
+      this.syncPathData();
+    },
+
+    syncPathData: function () {
+      this.raphaelPath.attr("path", this.pathData);
+      if (changed_cb && this.pathData.length)
+        changed_cb.call(this, this.pathData[this.pathData.length - 1]);
+    },
+
+    clear: function () {
+      this.pathData = [];
+      this.syncPathData();
+    },
+
+    getDataNormalized: function () {
+      return this.isEmpty() ? [] : annotator.normalizePath(this.pathData);
+    },
+
+    setDataNormalized: function (d) {
+      this.pathData = annotator.denormalizePath(d);
+      this.raphaelPath.attr("path", this.pathData);
+    },
+
+    isEmpty: function () {
+      return !this.pathData.some(function (d) {
+        return d[0] === 'L';
+      });
+    }
+  };
+};
+
+var createLineTool = function(annotator, changed_cb, drawColor, strokeWidth) {
+  return {
+    pathData: [],
+    raphaelPath: annotator.paper.path(this.pathData).attr({
+      'stroke': drawColor || '#800080',
+      'stroke-width': strokeWidth || 2
+    }),
+
+    mousedown: function (pt) {
+      this.pathData = [['M', pt.x, pt.y]];
+      this.syncPathData();
+      return true;
+    },
+    mousemove: function (pt) {
+      this.pathData = [this.pathData[0], ['L', pt.x, pt.y]];
+      this.syncPathData();
+    },
+    mouseup: function (pt) {
+      this.pathData.push(['Z']);
+      this.syncPathData();
+    },
+
+    syncPathData: function () {
+      this.raphaelPath.attr("path", this.pathData);
+      if (changed_cb && this.pathData.length)
+        changed_cb.call(this, this.pathData[this.pathData.length - 1]);
+    },
+
+    clear: function () {
+      this.pathData = [];
+      this.syncPathData();
+    },
+
+    getDataNormalized: function () {
+      return this.isEmpty() ? [] : annotator.normalizePath(this.pathData);
+    },
+
+    setDataNormalized: function (d) {
+      this.pathData = annotator.denormalizePath(d);
+      this.raphaelPath.attr("path", this.pathData);
+    },
+
+    isEmpty: function () {
+      return !this.pathData.some(function (d) {
+        return d[0] === 'L';
+      });
+    }
+  };
+};
+</script>
+<script>
+// targets = jQuery obj for all buttons with class target-button and an id that starts with "target-"
+// zoomBtn and cancelZoomBtn also jQuery selectors
+function initQuestion(canvas, qual, targets, zoomBtn, cancelZoomBtn, image_url, image_ed_name, oldDataStr) {
+  $ = jQuery;
+
+<!--  qual.disableNextButton(); -->
+
+  console.log("Initializing question for ED " + image_ed_name);
+
+  var anno = Annotator();
+  anno.init(image_url, canvas, {width: canvas.parent().width()}, function() {
+    // loaded
+    var colors = ['#b35806','#f1a340','#fee0b6','red','#d8daeb','#998ec3','#542788'];
+    var tools = [];
+    var currentTargetIdx = -1;
+    var mostCompletedTargetIdx = -1;
+
+    var updateStyles = function() {
+      targets.each(function (idx) {
+          $(this).removeClass('target-button-done');
+          if (!tools[idx].isEmpty())
+              $(this).addClass('target-button-done');
+      });
+    };
+
+    var setCurrentTarget;
+    var zoomTool = createZoomTool(anno, function (zoomFactor) {
+      cancelZoomBtn.prop('disabled', (zoomFactor === 1.0));
+      if (zoomFactor !== 1.0) {
+          // switch back to previous target automatically after zooming
+          setCurrentTarget(currentTargetIdx);
+      }
+    });
+
+    zoomBtn.click(function () {
+      anno.setTool(zoomTool);
+      targets.removeClass('activated');
+      zoomBtn.addClass('activated');
+    });
+    cancelZoomBtn.click(function () {
+      anno.clearZoom();
+      cancelZoomBtn.prop('disabled', true);
+    });
+
+    setCurrentTarget = function (idx) {
+      currentTargetIdx = idx;
+      targets.removeClass('activated');
+      zoomBtn.removeClass('activated');
+      $(targets[idx]).addClass('activated');
+      anno.setTool(tools[idx]);
+      updateStyles();
+    };
+
+    // for Qualtrics
+    var buildEmbeddedDataObj = function () {
+      return tools.map(function (tool, idx) {
+          return tool.getDataNormalized();
+      });
+    };
+
+    targets.each(function (idx) {
+      tools[idx] = createLineTool(anno, function(last) {
+        // auto advance to next target
+        if (last[0] === 'Z') {
+            mostCompletedTargetIdx = Math.max(idx, mostCompletedTargetIdx);
+            setCurrentTarget(mostCompletedTargetIdx + 1);
+            //if (mostCompletedTargetIdx + 1 >= tools.length)  // if last target, enable Qualtrics next button
+            //    qual.enableNextButton();
+        }
+
+        // if not intermediate data, save data
+        if (last[0] !== 'L') {
+            updateStyles();
+            Qualtrics.SurveyEngine.setEmbeddedData(image_ed_name, JSON.stringify(buildEmbeddedDataObj()));
+        }
+      }, colors[idx]);
+
+      $(this).click(function() {
+        setCurrentTarget(idx);
+      });
+
+      $(this).css('color', colors[idx]);
+    });
+
+    // once the image is loaded, load old path data (if there is any)
+    var oldData = JSON.parse(oldDataStr || '[]');
+    if (oldData.length > 0) {
+      oldData.forEach(function (data, idx) {
+        if (data.length > 0)
+          tools[idx].setDataNormalized(data);
+      });
+      updateStyles();
+      qual.enableNextButton();
+    } else {
+      setCurrentTarget(0);
+    }
+  });
+}
+</script>

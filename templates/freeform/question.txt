@@ -1,0 +1,187 @@
+[[Question:Text]]
+This is an example question.
+
+Image: {image_path}
+
+<div id="canvas-{image_id}"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/raphael/2.2.7/raphael.min.js"></script>
+<script>
+var Annotator = Annotator || function() {
+  return {
+    raphaelImage: null,
+    raphaelPath: null,
+    pathData: [],
+    mouseDown: false,
+    drawColor: "#800080",
+    strokeWidth: 2,
+
+    init: function(image_url, canvas, canvasSize, loaded_cb, changed_cb) {
+      var $ = $ || jQuery;
+
+      // load the image first so we can look at its dimensions
+      var img = new Image();
+      img.onload = $.proxy(function() {
+        // calculate canvas dimensions
+        var imgWidth = img.width, imgHeight = img.height;
+        img = undefined;
+        var xScale = canvasSize && canvasSize.width ? canvasSize.width / imgWidth : 1.0;
+        var yScale = canvasSize && canvasSize.height ? canvasSize.height / imgHeight : 1.0;
+        var scale = Math.min(xScale, yScale);
+        this.canvasWidth = imgWidth * scale;
+        this.canvasHeight = imgHeight * scale;
+
+        // init raphael
+        this.paper = Raphael(canvas.get(0), this.canvasWidth, this.canvasHeight);
+        this.raphaelImage = this.paper.image(image_url, 0, 0, this.canvasWidth, this.canvasHeight);
+        this.raphaelPath = this.paper.path(this.pathData);
+        this.raphaelPath.attr({stroke: this.drawColor, 'stroke-width': this.strokeWidth});
+
+        // install event handlers to canvas
+        var eventToPoint = function (e) {
+          if (e.type === "touchstart" || e.type === "touchmove") {
+            if (navigator.userAgent.toLowerCase().indexOf("android") > -1) {
+              return {x: e.changedTouches[0].pageX + window.scrollX, y: e.changedTouches[0].pageY + window.scrollY};
+            } else {
+              return {x: e.changedTouches[0].pageX, y: e.changedTouches[0].pageY};
+            }
+          } else {
+            return {x: e.pageX, y: e.pageY};
+          }
+        };
+
+        var getRelPoint = function (pt) {
+          var container = canvas.get(0);
+          var offset = {};
+
+          var ref = container.offsetParent;
+          offset.left = container.offsetLeft;
+          offset.top = container.offsetTop;
+
+          while (ref) {
+            offset.left += ref.offsetLeft;
+            offset.top += ref.offsetTop;
+            ref = ref.offsetParent;
+          }
+
+          return {
+            x: pt.x - offset.left,
+            y: pt.y - offset.top
+          };
+        };
+
+        var annotator = this;
+        var syncPathData = function () {
+          annotator.raphaelPath.attr("path", annotator.pathData);
+          if (changed_cb && annotator.pathData.length)
+            changed_cb(annotator.pathData[annotator.pathData.length - 1]);
+        };
+
+        canvas.bind("mousedown touchstart", function (e) {
+          e.preventDefault();
+          var pt = getRelPoint(eventToPoint(e));
+          annotator.mouseDown = true;
+          annotator.pathData = [['M', pt.x, pt.y]];
+          syncPathData();
+        });
+
+        canvas.bind("mousemove touchmove", function (e) {
+          if (!annotator.mouseDown)
+            return;
+          e.preventDefault();
+          var pt = getRelPoint(eventToPoint(e));
+          annotator.pathData.push(['L', pt.x, pt.y]);
+          syncPathData();
+        });
+
+        canvas.bind("mouseup touchend", function (e) {
+          if (!annotator.mouseDown)
+            return;
+          e.preventDefault();
+          annotator.mouseDown = false;
+          annotator.pathData.push(['Z']);
+          syncPathData();
+        });
+
+        if (loaded_cb)
+          loaded_cb.apply(this);
+      }, this);
+      img.src = image_url;
+    },
+
+    getDataNormalized: function() {
+      return this.isEmpty() ? [] : this.normalizePath(this.pathData);
+    },
+
+    setDataNormalized: function(d) {
+      this.pathData = this.denormalizePath(d);
+      if (this.raphaelPath)  // sync
+        this.raphaelPath.attr("path", this.pathData);
+    },
+
+    isEmpty: function() {
+      return !this.pathData.some(function (d) {
+        return d[0] === 'L';
+      });
+    },
+
+    normalizePath: function(path) {
+      return path.map(function (p) {
+        if (p[0] === 'M' || p[0] === 'L') {
+          var pt = this.normalizePoint(p[1], p[2]);
+          return [p[0], pt.x, pt.y];
+        } else {
+          return p;
+        }
+      }, this);
+    },
+
+    denormalizePath: function(path) {
+      return path.map(function (p) {
+        if (p[0] === 'M' || p[0] === 'L') {
+          var pt = this.denormalizePoint(p[1], p[2]);
+          return [p[0], pt.x, pt.y];
+        } else {
+          return p;
+        }
+      }, this);
+    },
+
+    normalizePoint: function(x, y) {
+      return {x: x / this.canvasWidth, y: y / this.canvasHeight};
+    },
+
+    denormalizePoint: function(x, y) {
+      return {x: x * this.canvasWidth, y: y * this.canvasHeight};
+    }
+  };
+};
+
+var anno = Annotator();
+Qualtrics.SurveyEngine.addOnload(function() {
+  var qual = this;
+  qual.disableNextButton();
+
+  var canvas = jQuery('#canvas-{image_id}');
+  anno.init('{image_url}', canvas, {width: canvas.parent().width()},
+    function() {
+      // once the image is loaded, load old path data (if there is any)
+      var oldData = JSON.parse('${e://Field/{image_ed}}' || '[]');
+      if (oldData.length > 0) {
+        anno.setDataNormalized(oldData);
+        qual.enableNextButton();
+      }
+    },
+    function(last) {
+      // path data changed
+      if (anno.isEmpty())
+        qual.disableNextButton();
+      else
+        qual.enableNextButton();
+
+      if (last[0] !== 'L') // save if this isn't intermediate path data
+        Qualtrics.SurveyEngine.setEmbeddedData('{image_ed}', JSON.stringify(anno.getDataNormalized()));
+  });
+});
+</script>
+[[PageBreak]]
